@@ -352,6 +352,7 @@ def create_app(config_name='development'):
             user_id = session['user_id']
             data = request.get_json()
             job_ids = data.get('job_ids', [])
+            logger.info(f"[DELETE] User {user_id} attempting to delete jobs: {job_ids}")
 
             if not job_ids or not isinstance(job_ids, list):
                 return jsonify({'error': 'Invalid job_ids'}), 400
@@ -361,13 +362,16 @@ def create_app(config_name='development'):
 
             for job_id in job_ids:
                 job = ExtractionJob.query.get(job_id)
+                logger.info(f"[DELETE] Looking for job {job_id}: found={job is not None}")
 
                 if not job:
                     failed.append({'job_id': job_id, 'error': 'Not found'})
+                    logger.warning(f"[DELETE] Job {job_id} not found in database")
                     continue
 
                 if job.user_id != user_id:
                     failed.append({'job_id': job_id, 'error': 'Unauthorized'})
+                    logger.warning(f"[DELETE] Job {job_id} belongs to user {job.user_id}, not {user_id}")
                     continue
 
                 try:

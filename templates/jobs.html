@@ -234,12 +234,18 @@
 
             if (response && response.status === 200) {
                 console.log('[DELETE] Success! Deleted count:', response.data.deleted_count);
+                if (response.data.failed && response.data.failed.length > 0) {
+                    console.warn('[DELETE] Failed to delete:', response.data.failed);
+                }
                 showAlert(`Successfully deleted ${response.data.deleted_count} job(s).`, 'success');
                 currentPage = 1;
                 console.log('[DELETE] Refreshing job list...');
                 await loadJobs();
                 console.log('[DELETE] Job list refreshed');
+                // Clear all checkboxes
                 document.getElementById('select-all-checkbox').checked = false;
+                document.querySelectorAll('.job-checkbox').forEach(cb => cb.checked = false);
+                updateDeleteUI();
             } else {
                 console.error('[DELETE] Failed with status:', response?.status, response?.data);
                 showAlert(`Deletion failed: ${response?.data?.error || 'Unknown error'}`, 'error');
@@ -301,9 +307,11 @@
         }
     });
 
-    // Auto-refresh every 5 seconds
+    // Auto-refresh every 5 seconds (skip if jobs are selected to avoid clearing checkboxes)
     setInterval(() => {
-        if (document.getElementById('modal').style.display === 'none') {
+        const selectedCount = Array.from(document.querySelectorAll('.job-checkbox')).filter(cb => cb.checked).length;
+        const modal = document.getElementById('modal');
+        if (modal && modal.style.display === 'none' && selectedCount === 0) {
             loadJobs();
         }
     }, 5000);
