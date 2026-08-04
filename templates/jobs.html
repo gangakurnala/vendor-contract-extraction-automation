@@ -228,17 +228,24 @@
             deleteButton.disabled = true;
             deleteButton.textContent = '🗑️ Deleting...';
 
+            console.log('[DELETE] Calling DELETE /api/jobs with IDs:', selectedIds);
             const response = await apiCall('/jobs', 'DELETE', { job_ids: selectedIds });
+            console.log('[DELETE] Response:', response);
 
-            if (response.status === 200) {
+            if (response && response.status === 200) {
+                console.log('[DELETE] Success! Deleted count:', response.data.deleted_count);
                 showAlert(`Successfully deleted ${response.data.deleted_count} job(s).`, 'success');
                 currentPage = 1;
-                loadJobs();
+                console.log('[DELETE] Refreshing job list...');
+                await loadJobs();
+                console.log('[DELETE] Job list refreshed');
                 document.getElementById('select-all-checkbox').checked = false;
             } else {
-                showAlert(`Deletion failed: ${response.data.error || 'Unknown error'}`, 'error');
+                console.error('[DELETE] Failed with status:', response?.status, response?.data);
+                showAlert(`Deletion failed: ${response?.data?.error || 'Unknown error'}`, 'error');
             }
         } catch (error) {
+            console.error('[DELETE] Exception:', error);
             showAlert(`Error deleting jobs: ${error.message}`, 'error');
         } finally {
             const deleteButton = document.getElementById('delete-button');
