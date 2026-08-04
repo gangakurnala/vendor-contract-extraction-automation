@@ -24,6 +24,23 @@ The bulk delete jobs feature UI works correctly but the actual deletion does not
 - **Scope:** Affects all users trying to delete jobs
 - **Business Impact:** Users cannot clean up job history
 
+### Additional Issues Discovered (2026-08-04)
+During testing, three additional related issues were identified:
+
+1. **Selection loses focus when hovering over delete button**
+   - When user selects a job and hovers over the delete button, the job becomes deselected
+   - Root cause: Page auto-refresh every 5 seconds rebuilds the table, resetting all checkboxes
+   - Impact: User must re-select jobs before deletion is possible
+
+2. **Individual job checkboxes not cleared after deletion**
+   - After successful deletion, select-all checkbox is cleared but individual checkboxes remain checked
+   - This causes confusion and leaves stale UI state
+   - Impact: User sees jobs deleted but checkboxes still show selections
+
+3. **Delete button doesn't reset to normal state**
+   - After deletion completes, delete button remains in loading/disabled state
+   - Impact: User cannot perform another deletion without manual page refresh
+
 ### Evidence
 - Backend DELETE endpoint works correctly (verified with API test)
 - Database deletion succeeds (job count decreases: 3→2 jobs)
@@ -59,9 +76,9 @@ Filesystem: .xlsx files deleted
 | Response format mismatch | ⭐⭐⭐ (Medium) | apiCall() might not parse DELETE response correctly |
 | loadJobs() failing internally | ⭐⭐ (Low) | No error feedback to user |
 
-### Most Likely Issue
-**Missing `await` before `loadJobs()`** in the deleteSelectedJobs() function:
+### Most Likely Issues
 
+**Issue 1: Missing `await` before `loadJobs()`**
 ```javascript
 // CURRENT (BROKEN)
 if (response.status === 200) {
@@ -73,6 +90,43 @@ if (response.status === 200) {
 
 // PROBLEM: The function continues executing while loadJobs() fetches data
 // Result: loadJobs() runs in background, but the function already completed
+```
+
+**Issue 2: Auto-refresh clears selections during delete workflow**
+```javascript
+// CURRENT (BROKEN) - Line 305-309
+setInterval(() => {
+    if (document.getElementById('modal').style.display === 'none') {
+        loadJobs();  // ← Refreshes every 5 seconds unconditionally
+    }
+}, 5000);
+
+// PROBLEM: When user selects jobs, the 5-second refresh rebuilds the table
+// Result: All checkboxes are reset/unchecked, selections disappear
+```
+
+**Issue 3: Incomplete checkbox clearing after deletion**
+```javascript
+// CURRENT (BROKEN)
+await loadJobs();
+document.getElementById('select-all-checkbox').checked = false;  // ← Only clears select-all
+
+// PROBLEM: Individual .job-checkbox elements still have checked=true
+// Result: UI shows checkboxes checked even though list refreshed
+```
+
+**Issue 4: Delete button state not updated after completion**
+```javascript
+// CURRENT (BROKEN)
+finally {
+    const deleteButton = document.getElementById('delete-button');
+    deleteButton.disabled = false;
+    deleteButton.textContent = '🗑️ Delete Selected';
+    // Missing: updateDeleteUI() call
+}
+
+// PROBLEM: updateDeleteUI() not called, so UI state inconsistent
+// Result: Delete button remains visible even though no jobs selected
 ```
 
 ---
@@ -137,33 +191,51 @@ async function deleteSelectedJobs() {
 
 **Changes Needed:**
 
-1. **Add `await` before `loadJobs()`**
+1. **Add `await` before `loadJobs()` in deleteSelectedJobs() (Line ~240)**
    ```javascript
    await loadJobs();  // Wait for data to load before continuing
    ```
 
-2. **Add console logging for debugging**
+2. **Clear all individual job checkboxes after deletion (Line ~242)**
+   ```javascript
+   document.querySelectorAll('.job-checkbox').forEach(cb => cb.checked = false);
+   ```
+
+3. **Call updateDeleteUI() after deletion to reset button state (Line ~243)**
+   ```javascript
+   updateDeleteUI();  // Reset delete button visibility and selection count
+   ```
+
+4. **Skip auto-refresh when jobs are selected (Line ~305-309)**
+   ```javascript
+   // BEFORE
+   setInterval(() => {
+       if (document.getElementById('modal').style.display === 'none') {
+           loadJobs();
+       }
+   }, 5000);
+   
+   // AFTER - Check if jobs are selected before refreshing
+   setInterval(() => {
+       const selectedCount = Array.from(document.querySelectorAll('.job-checkbox'))
+           .filter(cb => cb.checked).length;
+       const modal = document.getElementById('modal');
+       if (modal && modal.style.display === 'none' && selectedCount === 0) {
+           loadJobs();
+       }
+   }, 5000);
+   ```
+
+5. **Add console logging for debugging (existing)**
    ```javascript
    console.log('[DELETE] Response:', response);
    console.log('[DELETE] Refreshing job list...');
+   console.log('[DELETE] Job list refreshed');
    ```
 
-3. **Add response validation**
+6. **Add response validation (existing)**
    ```javascript
    if (response && response.status === 200) {  // Add null check
-   ```
-
-4. **Add error handling for loadJobs()**
-   ```javascript
-   if (response && response.status === 200) {
-       // ... existing code ...
-       try {
-           await loadJobs();
-       } catch (error) {
-           console.error('[DELETE] Failed to refresh jobs:', error);
-           showAlert('Jobs deleted but failed to refresh list', 'warning');
-       }
-   }
    ```
 
 ### 4.3 Fixed Implementation
@@ -287,6 +359,10 @@ def test_delete_jobs_console_logging():
 - [x] Confirmation works correctly
 - [ ] **Jobs are removed from list after confirmation** (CURRENTLY FAILING)
 - [ ] **Success message shows deletion count** (CURRENTLY FAILING)
+- [ ] **Job selections persist while user is hovering/preparing to delete** (NEW ISSUE)
+- [ ] **All job checkboxes are cleared after successful deletion** (NEW ISSUE)
+- [ ] **Delete button state updates properly after deletion completes** (NEW ISSUE)
+- [ ] **Auto-refresh does not interrupt user's selection process** (NEW ISSUE)
 - [ ] Database reflects deletion
 - [ ] Excel files deleted from filesystem
 - [ ] No console errors
@@ -299,11 +375,13 @@ def test_delete_jobs_console_logging():
 ## 6. Implementation Checklist
 
 ### Phase 1: Fix Implementation
-- [ ] Add `await` before `loadJobs()` call
+- [ ] Add `await` before `loadJobs()` call (Line ~240)
+- [ ] Clear all individual .job-checkbox elements after deletion (Line ~242)
+- [ ] Call updateDeleteUI() after deletion (Line ~243)
+- [ ] Update auto-refresh logic to skip refresh when jobs selected (Line ~305-309)
 - [ ] Add console.log() debug statements
 - [ ] Add response validation (null checks)
-- [ ] Add error handling for loadJobs() failure
-- [ ] Test syntax in browser console
+- [ ] Verify syntax in browser console
 
 ### Phase 2: Testing
 - [ ] Run pytest (existing test suite should pass)
