@@ -12,6 +12,15 @@
         <a href="/upload" class="btn" style="text-decoration: none; margin-left: 10px;">📤 New Job</a>
     </div>
 
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="select-all-checkbox" onchange="selectAllJobs()" style="cursor: pointer; width: 18px; height: 18px;">
+            <label for="select-all-checkbox" style="cursor: pointer; margin: 0;">Select All</label>
+            <span id="selection-count" style="color: #666; font-size: 14px; margin-left: 10px;">(0 selected)</span>
+        </div>
+        <button id="delete-button" onclick="deleteSelectedJobs()" class="btn" style="background-color: #dc3545; display: none;">🗑️ Delete Selected</button>
+    </div>
+
     <div id="jobs-container">
         <div class="loading" style="display: block;">
             <div class="spinner"></div>
@@ -51,7 +60,7 @@
             if (jobs.length === 0) {
                 container.innerHTML = '<p style="color: #999; text-align: center; padding: 40px;">No jobs found. <a href="/upload">Upload contracts</a> to get started.</p>';
             } else {
-                let html = '<table><thead><tr><th>Job Name</th><th>Status</th><th>Files</th><th>Contracts</th><th>Created</th><th>Action</th></tr></thead><tbody>';
+                let html = '<table><thead><tr><th style="width: 40px;"></th><th>Job Name</th><th>Status</th><th>Files</th><th>Contracts</th><th>Created</th><th>Action</th></tr></thead><tbody>';
 
                 jobs.forEach(job => {
                     const statusBadge = `<span class="badge badge-${
@@ -64,6 +73,7 @@
 
                     html += `
                         <tr>
+                            <td><input type="checkbox" class="job-checkbox" value="${job.id}" onchange="updateDeleteUI()" style="cursor: pointer; width: 18px; height: 18px;"></td>
                             <td><strong>${job.job_name}</strong></td>
                             <td>${statusBadge}</td>
                             <td>${job.input_file_count}</td>
@@ -148,11 +158,107 @@
     }
 
     async function downloadJob(jobId) {
-        window.location.href = `/api/jobs/${jobId}/download`;
+        try {
+            const response = await fetch(`/api/jobs/${jobId}/download`, {
+                method: 'GET'
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `extraction_${jobId}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+            } else {
+                alert('Download failed: ' + response.statusText);
+            }
+        } catch (error) {
+            alert('Error downloading file: ' + error.message);
+        }
     }
 
     function closeModal() {
         document.getElementById('modal').style.display = 'none';
+    }
+
+    function selectAllJobs() {
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        const jobCheckboxes = document.querySelectorAll('.job-checkbox');
+        jobCheckboxes.forEach(checkbox => {
+            checkbox.checked = selectAllCheckbox.checked;
+        });
+        updateDeleteUI();
+    }
+
+    function updateDeleteUI() {
+        const jobCheckboxes = document.querySelectorAll('.job-checkbox');
+        const selectedCount = Array.from(jobCheckboxes).filter(cb => cb.checked).length;
+        const deleteButton = document.getElementById('delete-button');
+        const selectionCount = document.getElementById('selection-count');
+
+        selectionCount.textContent = `(${selectedCount} selected)`;
+        deleteButton.style.display = selectedCount > 0 ? 'block' : 'none';
+
+        // Update select-all checkbox state
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        selectAllCheckbox.checked = selectedCount > 0 && selectedCount === jobCheckboxes.length;
+    }
+
+    function getSelectedJobIds() {
+        const jobCheckboxes = document.querySelectorAll('.job-checkbox:checked');
+        return Array.from(jobCheckboxes).map(cb => cb.value);
+    }
+
+    async function deleteSelectedJobs() {
+        const selectedIds = getSelectedJobIds();
+        if (selectedIds.length === 0) {
+            alert('Please select at least one job to delete.');
+            return;
+        }
+
+        const confirmed = confirm(`Delete ${selectedIds.length} job(s)? This cannot be undone.`);
+        if (!confirmed) return;
+
+        try {
+            const deleteButton = document.getElementById('delete-button');
+            deleteButton.disabled = true;
+            deleteButton.textContent = '🗑️ Deleting...';
+
+            const response = await apiCall('/jobs', 'DELETE', { job_ids: selectedIds });
+
+            if (response.status === 200) {
+                showAlert(`Successfully deleted ${response.data.deleted_count} job(s).`, 'success');
+                currentPage = 1;
+                loadJobs();
+                document.getElementById('select-all-checkbox').checked = false;
+            } else {
+                showAlert(`Deletion failed: ${response.data.error || 'Unknown error'}`, 'error');
+            }
+        } catch (error) {
+            showAlert(`Error deleting jobs: ${error.message}`, 'error');
+        } finally {
+            const deleteButton = document.getElementById('delete-button');
+            deleteButton.disabled = false;
+            deleteButton.textContent = '🗑️ Delete Selected';
+        }
+    }
+
+    function showAlert(message, type) {
+        const alertContainer = document.getElementById('alert-container') || document.createElement('div');
+        if (!alertContainer.id) {
+            alertContainer.id = 'alert-container';
+            document.querySelector('.card').insertBefore(alertContainer, document.querySelector('.card').firstChild);
+        }
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.textContent = message;
+        alertContainer.innerHTML = '';
+        alertContainer.appendChild(alert);
+        setTimeout(() => alert.remove(), 5000);
     }
 
     function previousPage() {
@@ -178,8 +284,10 @@
     });
 
     // Load jobs on page load
-    window.addEventListener('load', () => {
-        if (!accessToken) {
+    window.addEventListener('load', async () => {
+        // Verify user is authenticated
+        const authCheck = await fetch('/api/user');
+        if (!authCheck.ok) {
             window.location.href = '/';
         } else {
             loadJobs();

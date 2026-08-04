@@ -171,19 +171,9 @@
     });
 
     async function uploadFiles(formData) {
-        const options = {
-            method: 'POST'
-        };
-
-        if (accessToken) {
-            options.headers = {
-                'Authorization': `Bearer ${accessToken}`
-            };
-        }
-
         try {
             const response = await fetch(`${API_BASE}/extraction/upload`, {
-                ...options,
+                method: 'POST',
                 body: formData
             });
             const data = await response.json();

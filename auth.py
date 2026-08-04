@@ -213,10 +213,12 @@ def create_tokens(user_id, username):
     """Create JWT tokens for authenticated user"""
     try:
         access_token = create_access_token(
-            identity={'user_id': user_id, 'username': username}
+            identity=str(user_id),
+            additional_claims={'user_id': user_id, 'username': username}
         )
         refresh_token = create_refresh_token(
-            identity={'user_id': user_id, 'username': username}
+            identity=str(user_id),
+            additional_claims={'user_id': user_id, 'username': username}
         )
         return {
             'access_token': access_token,

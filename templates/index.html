@@ -38,29 +38,25 @@
         const password = document.getElementById('password').value;
 
         try {
-            const response = await apiCall('/auth/login', 'POST', {
-                username,
-                password
+            // Create FormData for login
+            const formData = new FormData();
+            formData.append('username', username);
+            formData.append('password', password);
+
+            const response = await fetch('/login', {
+                method: 'POST',
+                body: formData
             });
 
-            if (response.status === 200) {
-                // Save tokens and user info
-                localStorage.setItem('accessToken', response.data.tokens.access_token);
-                localStorage.setItem('refreshToken', response.data.tokens.refresh_token);
-                localStorage.setItem('currentUser', JSON.stringify(response.data.user));
+            const result = await response.json();
 
-                // Update navigation
-                updateNav();
-
-                // Show success message
+            if (response.ok) {
                 showAlert('Login successful! Redirecting...', 'success');
-
-                // Redirect to dashboard
                 setTimeout(() => {
                     window.location.href = '/dashboard';
                 }, 1000);
             } else {
-                showAlert(response.data.error || 'Login failed', 'error');
+                showAlert(result.error || 'Login failed', 'error');
             }
         } catch (error) {
             showAlert('An error occurred: ' + error.message, 'error');
@@ -76,9 +72,10 @@
         alertContainer.appendChild(alert);
     }
 
-    // Redirect to dashboard if already logged in
-    window.addEventListener('load', () => {
-        if (accessToken) {
+    // Check if already logged in
+    window.addEventListener('load', async () => {
+        const response = await fetch('/api/user');
+        if (response.ok) {
             window.location.href = '/dashboard';
         }
     });

@@ -211,11 +211,46 @@ def extract_contract_info_mock(file_name: str) -> tuple[Optional[ContractHeader]
     """
     print(f"  [TEST MODE] Using mock data for {file_name}")
 
-    if file_name not in MOCK_EXTRACTIONS:
-        print(f"  ⚠️  No mock data for {file_name}, skipping...")
-        return None, []
-
-    data = MOCK_EXTRACTIONS[file_name]
+    # Use specific mock data if available, otherwise use default
+    if file_name in MOCK_EXTRACTIONS:
+        data = MOCK_EXTRACTIONS[file_name]
+    else:
+        # Default mock data for any unrecognized filename
+        print(f"  [INFO] Using default mock data for {file_name}")
+        data = {
+            "contract_header": {
+                "contract_number": f"VC-{file_name[:10].upper()}",
+                "vendor_name": "Vendor Name",
+                "start_date": "January 1, 2025",
+                "end_date": "December 31, 2025",
+                "contract_value": "$200,000 USD",
+                "payment_terms": "Net 30 days",
+                "currency": "USD",
+                "contract_type": "Service Agreement"
+            },
+            "services": [
+                {
+                    "service_name": "Professional Services",
+                    "service_description": "Consulting and support services",
+                    "unit": "Per Hour",
+                    "rate": "$150",
+                    "currency": "USD",
+                    "minimum_order": "40 hours",
+                    "volume_discount": "5% for orders over 100 hours",
+                    "effective_from": "January 1, 2025"
+                },
+                {
+                    "service_name": "Technical Support",
+                    "service_description": "24/7 technical support",
+                    "unit": "Per Month",
+                    "rate": "$5,000",
+                    "currency": "USD",
+                    "minimum_order": "1 month",
+                    "volume_discount": "10% for 6+ month commitments",
+                    "effective_from": "January 1, 2025"
+                }
+            ]
+        }
 
     # Create ContractHeader object
     header_data = data.get("contract_header", {})
@@ -296,7 +331,7 @@ def create_excel_output(all_headers: list[ContractHeader], all_services: list[Se
         ws_services.column_dimensions[col].width = 18
 
     wb.save(output_file)
-    print(f"✓ Excel file created: {output_file}")
+    print(f"[OK] Excel file created: {output_file}")
 
 
 def process_contracts_test(input_folder: str = "sample-contracts", output_file: str = "extracted_contracts.xlsx"):
@@ -329,20 +364,20 @@ def process_contracts_test(input_folder: str = "sample-contracts", output_file: 
         if header and header.contract_number:
             all_headers.append(header)
             all_services.extend(services)
-            print(f"  ✓ Extracted: {header.contract_number} - {header.vendor_name}")
+            print(f"  [OK] Extracted: {header.contract_number} - {header.vendor_name}")
             print(f"    Services found: {len(services)}")
         else:
-            print(f"  ⚠️  No contract information extracted")
+            print(f"  [WARN] No contract information extracted")
 
     if all_headers or all_services:
         create_excel_output(all_headers, all_services, output_file)
-        print(f"\n✓ Test complete!")
+        print(f"\n[OK] Test complete!")
         print(f"  Total contracts: {len(all_headers)}")
         print(f"  Total services: {len(all_services)}")
-        print(f"\n📊 Output file: {output_file}")
+        print(f"\n[OUTPUT] Output file: {output_file}")
         print(f"\nWhen you have an API key, use contract_extractor.py instead for real extraction.")
     else:
-        print("\n⚠️  No contract data extracted.")
+        print("\n[WARN] No contract data extracted.")
 
 
 if __name__ == "__main__":

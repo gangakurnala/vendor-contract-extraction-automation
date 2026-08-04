@@ -96,8 +96,10 @@
     }
 
     // Load data on page load
-    window.addEventListener('load', () => {
-        if (!accessToken) {
+    window.addEventListener('load', async () => {
+        // Verify user is authenticated
+        const authCheck = await fetch('/api/user');
+        if (!authCheck.ok) {
             window.location.href = '/';
         } else {
             loadDashboardData();

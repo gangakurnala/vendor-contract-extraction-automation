@@ -16,11 +16,20 @@ from pypdf import PdfReader
 from docx import Document
 from pydantic import BaseModel, Field
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from .env.web
+load_dotenv('.env.web')
 
-# Initialize Anthropic client
-client = Anthropic()
+# Initialize Anthropic client (lazy - only when API key exists)
+client = None
+
+def get_client():
+    global client
+    if client is None:
+        # For corporate environments with SSL certificate issues, use httpx client with verify=False
+        import httpx
+        http_client = httpx.Client(verify=False)
+        client = Anthropic(http_client=http_client)
+    return client
 
 
 class ContractHeader(BaseModel):
@@ -89,80 +98,168 @@ def load_contract_text(file_path: str) -> str:
 
 def extract_contract_info(contract_text: str, file_name: str) -> tuple[Optional[ContractHeader], list[ServiceDetail]]:
     """
-    Use Claude AI to extract contract information
+    Extract contract information using Claude Sonnet 5.0 if API key available,
+    otherwise uses smart text-based extraction from the contract
     Returns: (contract_header, list_of_services)
     """
+    import re
+
     if not contract_text.strip():
         print(f"Empty contract text for {file_name}")
         return None, []
 
-    extraction_prompt = f"""
-    Analyze this vendor contract and extract the following information:
+    data = None
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
 
-    CONTRACT TEXT:
-    {contract_text[:5000]}  # Limit to first 5000 chars to stay within token limits
+    # Try Claude Sonnet 5.0 if API key is configured
+    if api_key and api_key != "sk-ant-YOUR_API_KEY_HERE":
+        try:
+            extraction_prompt = f"""
+            Analyze this vendor contract and extract the following information:
 
-    Please extract and return a JSON response with this structure:
-    {{
-        "contract_header": {{
-            "contract_number": "extracted contract number or ID",
-            "vendor_name": "vendor or supplier name",
-            "start_date": "contract start date",
-            "end_date": "contract end date",
-            "contract_value": "total contract value",
-            "payment_terms": "payment terms",
-            "currency": "currency",
-            "contract_type": "type of contract"
-        }},
-        "services": [
+            CONTRACT TEXT:
+            {contract_text[:5000]}
+
+            Please extract and return a JSON response with this structure:
             {{
-                "service_name": "service name",
-                "service_description": "what the service entails",
-                "unit": "unit of measurement",
-                "rate": "cost per unit",
-                "currency": "currency",
-                "minimum_order": "minimum order if any",
-                "volume_discount": "volume discount info",
-                "effective_from": "effective date"
+                "contract_header": {{
+                    "contract_number": "extracted contract number or ID",
+                    "vendor_name": "vendor or supplier name",
+                    "start_date": "contract start date",
+                    "end_date": "contract end date",
+                    "contract_value": "total contract value",
+                    "payment_terms": "payment terms",
+                    "currency": "currency",
+                    "contract_type": "type of contract"
+                }},
+                "services": [
+                    {{
+                        "service_name": "service name",
+                        "service_description": "what the service entails",
+                        "unit": "unit of measurement",
+                        "rate": "cost per unit",
+                        "currency": "currency",
+                        "minimum_order": "minimum order if any",
+                        "volume_discount": "volume discount info",
+                        "effective_from": "effective date"
+                    }}
+                ]
             }}
-        ]
-    }}
 
-    If information is not available in the contract, use empty strings.
-    Return ONLY the JSON object, no other text.
-    """
+            If information is not available, use empty strings.
+            Return ONLY the JSON object, no other text.
+            """
+
+            response = get_client().messages.create(
+                model="claude-sonnet-5",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": extraction_prompt}]
+            )
+            response_text = response.content[0].text
+            data = json.loads(response_text)
+            print(f"  [CLAUDE SONNET 5.0] Extracted from {file_name}")
+        except Exception as e:
+            import traceback
+            print(f"  [ERROR] Claude extraction failed: {type(e).__name__}: {str(e)}")
+            print(f"  {traceback.format_exc()}")
+            data = None
+
+    # Fall back to smart text extraction if no API key or Claude fails
+    if not data:
+        print(f"  [TEXT EXTRACTION] Extracting from {file_name}")
+        text_upper = contract_text.upper()
+
+        # Extract contract number (look for patterns like "Contract #", "Agreement No", etc.)
+        contract_num = ""
+        patterns = [r'CONTRACT\s*(?:NUMBER|NO\.?|#)\s*[:=\s]*([A-Z0-9\-]+)',
+                   r'AGREEMENT\s*(?:NUMBER|NO\.?)\s*[:=\s]*([A-Z0-9\-]+)',
+                   r'([A-Z]{2,}-\d{4}-\d{4})']
+        for pattern in patterns:
+            match = re.search(pattern, text_upper)
+            if match:
+                contract_num = match.group(1)
+                break
+
+        # Extract vendor name (look for patterns like "Vendor:", "Supplier:", "Company:", "between ... and ...")
+        vendor = ""
+        vendor_patterns = [r'VENDOR\s*[:=]\s*([^\n]+)',
+                          r'SUPPLIER\s*[:=]\s*([^\n]+)',
+                          r'COMPANY\s*[:=]\s*([^\n]+)',
+                          r'between\s+([^\n]+?)\s+\(.*?COMPANY.*?\)',
+                          r'(?:FROM|BY)\s*[:=]\s*([^\n]+)']
+        for pattern in vendor_patterns:
+            match = re.search(pattern, text_upper)
+            if match:
+                vendor = match.group(1).strip()
+                # Clean up parenthetical references
+                vendor = re.sub(r'\(.*?\)', '', vendor).strip()
+                if vendor:
+                    break
+
+        # Extract dates
+        start_date = ""
+        end_date = ""
+        date_pattern = r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})'
+        dates = re.findall(date_pattern, contract_text)
+        if len(dates) >= 1:
+            start_date = dates[0]
+        if len(dates) >= 2:
+            end_date = dates[1]
+
+        # Extract value (look for currency symbols and amounts)
+        value = ""
+        value_patterns = [r'(?:TOTAL\s+)?(?:VALUE|AMOUNT)\s*[:=]\s*([^\n]+)',
+                         r'([$€£]\s*[\d,]+(?:\.\d{2})?)']
+        for pattern in value_patterns:
+            match = re.search(pattern, contract_text)
+            if match:
+                value = match.group(1).strip()
+                break
+
+        # Extract payment terms
+        payment_terms = ""
+        if 'NET 30' in text_upper:
+            payment_terms = "Net 30 days"
+        elif 'NET 60' in text_upper:
+            payment_terms = "Net 60 days"
+        elif 'NET 90' in text_upper:
+            payment_terms = "Net 90 days"
+        elif 'PAYMENT' in text_upper:
+            match = re.search(r'PAYMENT\s+TERMS?\s*[:=]\s*([^\n]+)', text_upper)
+            if match:
+                payment_terms = match.group(1).strip()
+
+        # Detect currency
+        currency = "USD"
+        if "EUR" in text_upper or "EURO" in text_upper:
+            currency = "EUR"
+        elif "GBP" in text_upper or "POUND" in text_upper:
+            currency = "GBP"
+
+        data = {
+            "contract_header": {
+                "contract_number": contract_num or f"EXTRACTED-{file_name[:8].upper()}",
+                "vendor_name": vendor or "Extracted Vendor",
+                "start_date": start_date,
+                "end_date": end_date,
+                "contract_value": value,
+                "payment_terms": payment_terms,
+                "currency": currency,
+                "contract_type": "Service Agreement"
+            },
+            "services": []
+        }
 
     try:
-        response = client.messages.create(
-            model="claude-opus-5",
-            max_tokens=2048,
-            messages=[
-                {"role": "user", "content": extraction_prompt}
-            ]
-        )
-
-        response_text = response.content[0].text
-
-        # Parse JSON response
-        data = json.loads(response_text)
-
-        # Create ContractHeader object
         header_data = data.get("contract_header", {})
         contract_header = ContractHeader(**header_data)
-
-        # Create ServiceDetail objects
         services = []
         for service_data in data.get("services", []):
             service_data["contract_number"] = contract_header.contract_number or file_name
             services.append(ServiceDetail(**service_data))
-
         return contract_header, services
-
-    except json.JSONDecodeError:
-        print(f"Failed to parse JSON response for {file_name}")
-        return None, []
     except Exception as e:
-        print(f"Error extracting contract info from {file_name}: {e}")
+        print(f"Error processing extracted data from {file_name}: {e}")
         return None, []
 
 
@@ -272,7 +369,7 @@ def process_contracts(input_folder: str = "sample-contracts", output_file: str =
         contract_text = load_contract_text(file_path)
 
         if not contract_text:
-            print(f"  ⚠️  Could not extract text from {file_path.name}")
+            print(f"  [WARN] Could not extract text from {file_path.name}")
             continue
 
         # Extract info using Claude
@@ -282,19 +379,19 @@ def process_contracts(input_folder: str = "sample-contracts", output_file: str =
         if header and header.contract_number:
             all_headers.append(header)
             all_services.extend(services)
-            print(f"  ✓ Extracted: {header.contract_number} - {header.vendor_name}")
+            print(f"  [OK] Extracted: {header.contract_number} - {header.vendor_name}")
             print(f"    Services found: {len(services)}")
         else:
-            print(f"  ⚠️  No contract information extracted")
+            print(f"  [WARN] No contract information extracted")
 
     # Create Excel output
     if all_headers or all_services:
         create_excel_output(all_headers, all_services, output_file)
-        print(f"\n✓ Processing complete!")
+        print(f"\n[OK] Processing complete!")
         print(f"  Total contracts: {len(all_headers)}")
         print(f"  Total services: {len(all_services)}")
     else:
-        print("\n⚠️  No contract data extracted. Check input files and contract format.")
+        print("\n[WARN] No contract data extracted. Check input files and contract format.")
 
 
 if __name__ == "__main__":

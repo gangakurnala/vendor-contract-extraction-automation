@@ -283,56 +283,67 @@
     </footer>
 
     <script>
-        // API Configuration
+        // API Configuration (Session-based, no tokens needed)
         const API_BASE = '/api';
-        let accessToken = localStorage.getItem('accessToken');
-        let currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
 
         // Update navigation based on auth status
-        function updateNav() {
+        async function updateNav() {
             const navMenu = document.getElementById('nav-menu');
             if (!navMenu) return;
 
-            if (accessToken && currentUser.user_id) {
-                navMenu.innerHTML = `
-                    <a href="/dashboard" class="nav-link">Dashboard</a>
-                    <a href="/jobs" class="nav-link">My Jobs</a>
-                    <a href="/upload" class="nav-link">Upload</a>
-                    <button onclick="logout()" class="btn btn-secondary">Logout</button>
-                `;
-            } else {
-                navMenu.innerHTML = `
-                    <a href="/" class="nav-link">Login</a>
-                `;
+            try {
+                // Check if user is authenticated by trying to get user info
+                const response = await fetch(`${API_BASE}/user`);
+
+                if (response.ok) {
+                    const user = await response.json();
+                    navMenu.innerHTML = `
+                        <a href="/dashboard" class="nav-link">Dashboard</a>
+                        <a href="/jobs" class="nav-link">My Jobs</a>
+                        <a href="/upload" class="nav-link">Upload</a>
+                        <button onclick="logout()" class="btn btn-secondary">Logout</button>
+                    `;
+                } else {
+                    navMenu.innerHTML = `<a href="/" class="nav-link">Login</a>`;
+                }
+            } catch (error) {
+                navMenu.innerHTML = `<a href="/" class="nav-link">Login</a>`;
             }
         }
 
-        // API helper function
-        async function apiCall(endpoint, method = 'GET', data = null) {
+        // API helper function (Session-based)
+        async function apiCall(endpoint, method = 'GET', data = null, isFormData = false) {
             const options = {
                 method,
-                headers: {
-                    'Content-Type': 'application/json',
-                }
+                headers: {}
             };
 
-            if (accessToken) {
-                options.headers['Authorization'] = `Bearer ${accessToken}`;
+            if (!isFormData) {
+                options.headers['Content-Type'] = 'application/json';
             }
 
             if (data) {
-                options.body = JSON.stringify(data);
+                if (isFormData) {
+                    options.body = data;  // FormData object
+                } else {
+                    options.body = JSON.stringify(data);
+                }
             }
 
             try {
                 const response = await fetch(`${API_BASE}${endpoint}`, options);
-                const result = await response.json();
 
                 if (response.status === 401) {
                     logout();
                     return null;
                 }
 
+                // Handle file downloads
+                if (response.headers.get('content-type')?.includes('spreadsheet')) {
+                    return { status: response.status, blob: await response.blob() };
+                }
+
+                const result = await response.json();
                 return { status: response.status, data: result };
             } catch (error) {
                 console.error('API error:', error);
@@ -341,10 +352,8 @@
         }
 
         // Logout function
-        function logout() {
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
-            localStorage.removeItem('currentUser');
+        async function logout() {
+            await fetch('/logout');
             window.location.href = '/';
         }
 
