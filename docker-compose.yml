@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # Flask Web Application
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
+      - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
+      - DATABASE_URL=postgresql://user:password@postgres:5432/contracts
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AUTH_TYPE=${AUTH_TYPE:-test}
+      - LDAP_SERVER=${LDAP_SERVER:-ldap://localhost:389}
+      - LDAP_BASE_DN=${LDAP_BASE_DN:-dc=example,dc=com}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - contract-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/auth/user"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${DB_USER:-user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+      - POSTGRES_DB=contracts
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - contract-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Message Broker
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - contract-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Celery Worker (for async job processing)
+  celery:
+    build: .
+    command: celery -A tasks worker --loglevel=info
+    environment:
+      - FLASK_ENV=production
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql://user:password@postgres:5432/contracts
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - contract-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  contract-network:
+    driver: bridge

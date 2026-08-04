@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Contracts - Contract Extraction{% endblock %}
+
+{% block content %}
+<div style="max-width: 600px; margin: 40px auto;">
+    <h1>Upload Contracts</h1>
+
+    <div class="card">
+        <div id="alert-container"></div>
+
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="job-name">Job Name</label>
+                <input type="text" id="job-name" name="job_name" required placeholder="e.g., Q4 Vendor Contracts">
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description (Optional)</label>
+                <textarea id="description" name="description" rows="3" placeholder="Add notes about this extraction job..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="files">Contract Files</label>
+                <div id="drop-zone" style="border: 2px dashed #667eea; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s ease;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">📄</div>
+                    <p style="margin-bottom: 10px;">Drag and drop contract files here</p>
+                    <p style="color: #999; font-size: 14px;">or</p>
+                    <input type="file" id="files" name="files" multiple accept=".pdf,.docx" style="display: none;">
+                    <button type="button" onclick="document.getElementById('files').click()" class="btn" style="margin-top: 10px;">Select Files</button>
+                    <p style="color: #999; font-size: 12px; margin-top: 10px;">Supported: PDF, Word (.docx) • Max 50MB per file</p>
+                </div>
+                <div id="files-list" style="margin-top: 20px;"></div>
+            </div>
+
+            <button type="submit" class="btn" style="width: 100%;">📤 Upload & Extract</button>
+        </form>
+
+        <div id="progress" class="loading" style="margin-top: 30px;">
+            <div class="spinner"></div>
+            <p>Uploading and extracting...</p>
+            <div id="progress-text" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const filesInput = document.getElementById('files');
+    const filesList = document.getElementById('files-list');
+    let selectedFiles = [];
+
+    // Drag and drop
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, highlight, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, unhighlight, false);
+    });
+
+    function highlight(e) {
+        dropZone.style.borderColor = '#667eea';
+        dropZone.style.background = '#f8f9ff';
+    }
+
+    function unhighlight(e) {
+        dropZone.style.borderColor = '#667eea';
+        dropZone.style.background = 'white';
+    }
+
+    dropZone.addEventListener('drop', handleDrop, false);
+
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        filesInput.files = files;
+        updateFilesList(files);
+    }
+
+    filesInput.addEventListener('change', (e) => {
+        updateFilesList(e.target.files);
+    });
+
+    function updateFilesList(files) {
+        filesList.innerHTML = '';
+        selectedFiles = Array.from(files);
+
+        if (selectedFiles.length === 0) return;
+
+        let html = '<div style="background: #f8f9fa; padding: 15px; border-radius: 4px;"><strong>Selected Files:</strong><ul style="margin-top: 10px;">';
+        selectedFiles.forEach((file, index) => {
+            html += `<li style="margin-bottom: 5px;">${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) <button type="button" onclick="removeFile(${index})" style="color: #dc3545; background: none; border: none; cursor: pointer; text-decoration: underline;">Remove</button></li>`;
+        });
+        html += '</ul></div>';
+        filesList.innerHTML = html;
+    }
+
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        const dt = new DataTransfer();
+        selectedFiles.forEach(file => dt.items.add(file));
+        filesInput.files = dt.files;
+        updateFilesList(filesInput.files);
+    }
+
+    // Form submission
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (selectedFiles.length === 0) {
+            showAlert('Please select at least one file', 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('job_name', document.getElementById('job-name').value);
+        formData.append('description', document.getElementById('description').value);
+
+        selectedFiles.forEach(file => {
+            formData.append('files', file);
+        });
+
+        try {
+            // Show progress
+            document.getElementById('progress').style.display = 'block';
+            document.getElementById('uploadForm').style.display = 'none';
+
+            // Upload files
+            const uploadResponse = await uploadFiles(formData);
+
+            if (uploadResponse.status === 201) {
+                const jobId = uploadResponse.data.job_id;
+
+                // Start extraction
+                document.getElementById('progress-text').textContent = 'Starting extraction...';
+
+                const extractResponse = await apiCall(`/extraction/extract/${jobId}`, 'POST');
+
+                if (extractResponse.status === 200) {
+                    showAlert('Extraction completed successfully!', 'success');
+
+                    // Redirect to job details
+                    setTimeout(() => {
+                        window.location.href = `/jobs?job_id=${jobId}`;
+                    }, 2000);
+                } else {
+                    showAlert('Extraction failed: ' + (extractResponse.data.error || 'Unknown error'), 'error');
+                }
+            } else {
+                showAlert('Upload failed: ' + (uploadResponse.data.error || 'Unknown error'), 'error');
+            }
+
+            document.getElementById('progress').style.display = 'none';
+            document.getElementById('uploadForm').style.display = 'block';
+
+        } catch (error) {
+            showAlert('Error: ' + error.message, 'error');
+            document.getElementById('progress').style.display = 'none';
+            document.getElementById('uploadForm').style.display = 'block';
+        }
+    });
+
+    async function uploadFiles(formData) {
+        const options = {
+            method: 'POST'
+        };
+
+        if (accessToken) {
+            options.headers = {
+                'Authorization': `Bearer ${accessToken}`
+            };
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/extraction/upload`, {
+                ...options,
+                body: formData
+            });
+            const data = await response.json();
+            return { status: response.status, data };
+        } catch (error) {
+            console.error('Upload error:', error);
+            return { status: 500, data: { error: error.message } };
+        }
+    }
+
+    function showAlert(message, type) {
+        const alertContainer = document.getElementById('alert-container');
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.textContent = message;
+        alertContainer.innerHTML = '';
+        alertContainer.appendChild(alert);
+    }
+
+    // Check auth
+    window.addEventListener('load', () => {
+        if (!accessToken) {
+            window.location.href = '/';
+        }
+    });
+</script>
+{% endblock %}

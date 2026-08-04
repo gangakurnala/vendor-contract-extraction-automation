@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Contract Extraction{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 60px auto;">
+    <div class="card">
+        <h1 style="text-align: center; margin-bottom: 30px; color: #667eea;">Welcome to Contract Extraction</h1>
+
+        <div id="alert-container"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username or Email</label>
+                <input type="text" id="username" name="username" required placeholder="Enter your Maersk username">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required placeholder="Enter your password">
+            </div>
+
+            <button type="submit" class="btn" style="width: 100%; margin-top: 20px;">Login</button>
+        </form>
+
+        <div style="text-align: center; margin-top: 20px; color: #666; font-size: 14px;">
+            <p>This application uses Maersk authentication.</p>
+            <p>Contact your administrator if you need access.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+
+        try {
+            const response = await apiCall('/auth/login', 'POST', {
+                username,
+                password
+            });
+
+            if (response.status === 200) {
+                // Save tokens and user info
+                localStorage.setItem('accessToken', response.data.tokens.access_token);
+                localStorage.setItem('refreshToken', response.data.tokens.refresh_token);
+                localStorage.setItem('currentUser', JSON.stringify(response.data.user));
+
+                // Update navigation
+                updateNav();
+
+                // Show success message
+                showAlert('Login successful! Redirecting...', 'success');
+
+                // Redirect to dashboard
+                setTimeout(() => {
+                    window.location.href = '/dashboard';
+                }, 1000);
+            } else {
+                showAlert(response.data.error || 'Login failed', 'error');
+            }
+        } catch (error) {
+            showAlert('An error occurred: ' + error.message, 'error');
+        }
+    });
+
+    function showAlert(message, type) {
+        const alertContainer = document.getElementById('alert-container');
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.textContent = message;
+        alertContainer.innerHTML = '';
+        alertContainer.appendChild(alert);
+    }
+
+    // Redirect to dashboard if already logged in
+    window.addEventListener('load', () => {
+        if (accessToken) {
+            window.location.href = '/dashboard';
+        }
+    });
+</script>
+{% endblock %}
