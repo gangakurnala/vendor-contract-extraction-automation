@@ -1,0 +1,51 @@
+name: Deploy to Production
+
+on:
+  workflow_run:
+    workflows: ["CI - Test & Build"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build Docker image
+      run: |
+        docker build -t vendor-contract-extraction:${{ github.sha }} .
+        docker tag vendor-contract-extraction:${{ github.sha }} vendor-contract-extraction:latest
+
+    - name: Docker image info
+      run: |
+        echo "Image built: vendor-contract-extraction:${{ github.sha }}"
+        echo "Image tag: vendor-contract-extraction:latest"
+
+    # TODO: Add your deployment steps here
+    # Examples:
+    # - Push to Docker registry (DockerHub, ECR, etc.)
+    # - Deploy to Kubernetes
+    # - Deploy to App Engine, Cloud Run, etc.
+    # - SSH into server and pull latest image
+
+    - name: Deployment notification
+      run: |
+        echo "✅ Deployment workflow completed"
+        echo "Image: vendor-contract-extraction:${{ github.sha }}"
+        echo "Branch: ${{ github.ref }}"
+        echo "Commit: ${{ github.sha }}"
+
+    # Example: Send Slack notification
+    # - name: Notify Slack
+    #   uses: slackapi/slack-github-action@v1.24.0
+    #   with:
+    #     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+    #     payload: |
+    #       {
+    #         "text": "Deployment completed for ${{ github.sha }}"
+    #       }
