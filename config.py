@@ -61,7 +61,7 @@ class Config:
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 
     # Extraction settings
-    EXTRACTION_MODEL = os.getenv('EXTRACTION_MODEL', 'claude-opus-5')
+    EXTRACTION_MODEL = os.getenv('EXTRACTION_MODEL', 'claude-sonnet-5')
     EXTRACTION_MAX_TOKENS = int(os.getenv('EXTRACTION_MAX_TOKENS', 2048))
 
     # UI Settings

@@ -150,14 +150,14 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx    # Required for production
 ### Settings
 - **Input folder:** `sample-contracts/` (can be changed)
 - **Output file:** `extracted_contracts.xlsx` (configurable)
-- **Model:** `claude-opus-5` (edit in contract_extractor.py)
+- **Model:** `claude-sonnet-5` (set via `EXTRACTION_MODEL`, default in config.py)
 - **Token limit:** 2048 (adjust as needed)
 
 ### Adjustable Parameters
 
 **In contract_extractor.py:**
 - Line ~150: `extraction_prompt` - Customize what to extract
-- Line ~165: `model="claude-opus-5"` - Change model
+- Line ~154: `model=` - reads `EXTRACTION_MODEL` (default `claude-sonnet-5`)
 - Line ~166: `max_tokens=2048` - Adjust token limit
 
 ---

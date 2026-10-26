@@ -151,8 +151,8 @@ def extract_contract_info(contract_text: str, file_name: str) -> tuple[Optional[
             """
 
             response = get_client().messages.create(
-                model="claude-sonnet-5",
-                max_tokens=2048,
+                model=os.getenv("EXTRACTION_MODEL", "claude-sonnet-5"),
+                max_tokens=int(os.getenv("EXTRACTION_MAX_TOKENS", 2048)),
                 messages=[{"role": "user", "content": extraction_prompt}]
             )
             response_text = response.content[0].text

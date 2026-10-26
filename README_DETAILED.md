@@ -273,7 +273,7 @@ extraction_prompt = f"""
 
 # Change model
 response = client.messages.create(
-    model="claude-opus-5",  # Change to different model
+    model="claude-sonnet-5",  # Change to different model
     max_tokens=2048,        # Adjust token limit
     ...
 )
